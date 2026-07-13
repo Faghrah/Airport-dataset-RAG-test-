@@ -1,0 +1,25 @@
+# Private configuration and credentials
+config.txt
+.env
+
+# Python-generated files
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+
+# Dataset used locally
+Movment at AIRPORTS.xlsx
+
+# Log files
+*.log
+
+# VS Code settings
+.vscode/
+
+# Operating-system files
+Thumbs.db
+.DS_Store
