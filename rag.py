@@ -1,34 +1,89 @@
 import os
+from typing import List
+
 import pandas as pd
+import requests
 from dotenv import dotenv_values
 from pymongo import MongoClient
 from langchain_groq import ChatGroq
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 
 
-# Read local config.txt when it exists.
-# On Render, values will come from environment variables.
+class HuggingFaceAPIEmbeddings(Embeddings):
+    def __init__(self, model_name: str, api_token: str):
+        self.model_name = model_name
+        self.api_token = api_token
+        self.api_url = (
+            "https://router.huggingface.co/hf-inference/models/"
+            f"{model_name}/pipeline/feature-extraction"
+        )
+
+    def _embed(self, texts: List[str]) -> List[List[float]]:
+        response = requests.post(
+            self.api_url,
+            headers={
+                "Authorization": f"Bearer {self.api_token}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "inputs": texts,
+                "options": {
+                    "wait_for_model": True
+                }
+            },
+            timeout=120,
+        )
+
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"Hugging Face embedding request failed: "
+                f"{response.status_code} {response.text}"
+            )
+
+        embeddings = response.json()
+
+        if not isinstance(embeddings, list):
+            raise RuntimeError(
+                f"Unexpected embedding response: {embeddings}"
+            )
+
+        return embeddings
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return self._embed(texts)
+
+    def embed_query(self, text: str) -> List[float]:
+        return self._embed([text])[0]
+
+
 local_config = dotenv_values("config.txt")
 
 
-def get_config_value(name: str, default: str | None = None) -> str | None:
+def get_config_value(
+    name: str,
+    default: str | None = None
+) -> str | None:
     return os.getenv(name) or local_config.get(name) or default
 
 
 GROQ_API_KEY = get_config_value("GROQ_API_KEY")
+HF_TOKEN = get_config_value("HF_TOKEN")
 MONGODB_URI = get_config_value("MONGODB_URI")
 DB_NAME = get_config_value("DB_NAME")
 COLLECTION_NAME = get_config_value("COLLECTION_NAME")
+
 GROQ_MODEL = get_config_value(
     "GROQ_MODEL",
     "llama-3.3-70b-versatile"
 )
+
 EMBEDDING_MODEL = get_config_value(
     "EMBEDDING_MODEL",
     "sentence-transformers/all-MiniLM-L6-v2"
 )
+
 VECTOR_INDEX_NAME = get_config_value(
     "VECTOR_INDEX_NAME",
     "vector_index"
@@ -37,6 +92,9 @@ VECTOR_INDEX_NAME = get_config_value(
 
 if not GROQ_API_KEY:
     raise RuntimeError("GROQ_API_KEY is missing")
+
+if not HF_TOKEN:
+    raise RuntimeError("HF_TOKEN is missing")
 
 if not MONGODB_URI:
     raise RuntimeError("MONGODB_URI is missing")
@@ -53,8 +111,9 @@ os.environ["GROQ_API_KEY"] = GROQ_API_KEY
 client = MongoClient(MONGODB_URI)
 collection = client[DB_NAME][COLLECTION_NAME]
 
-embeddings = HuggingFaceEmbeddings(
-    model_name=EMBEDDING_MODEL
+embeddings = HuggingFaceAPIEmbeddings(
+    model_name=EMBEDDING_MODEL,
+    api_token=HF_TOKEN
 )
 
 vector_store = MongoDBAtlasVectorSearch(
