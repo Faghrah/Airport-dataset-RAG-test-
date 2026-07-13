@@ -7,36 +7,66 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from langchain_core.documents import Document
 
-config = dotenv_values("config.txt")
 
-GROQ_API_KEY = config.get("GROQ_API_KEY")
-MONGODB_URI = config.get("MONGODB_URI")
-DB_NAME = config.get("DB_NAME")
-COLLECTION_NAME = config.get("COLLECTION_NAME")
-GROQ_MODEL = config.get("GROQ_MODEL")
-EMBEDDING_MODEL = config.get("EMBEDDING_MODEL")
-VECTOR_INDEX_NAME = config.get("VECTOR_INDEX_NAME", "vector_index")
+# Read local config.txt when it exists.
+# On Render, values will come from environment variables.
+local_config = dotenv_values("config.txt")
+
+
+def get_config_value(name: str, default: str | None = None) -> str | None:
+    return os.getenv(name) or local_config.get(name) or default
+
+
+GROQ_API_KEY = get_config_value("GROQ_API_KEY")
+MONGODB_URI = get_config_value("MONGODB_URI")
+DB_NAME = get_config_value("DB_NAME")
+COLLECTION_NAME = get_config_value("COLLECTION_NAME")
+GROQ_MODEL = get_config_value(
+    "GROQ_MODEL",
+    "llama-3.3-70b-versatile"
+)
+EMBEDDING_MODEL = get_config_value(
+    "EMBEDDING_MODEL",
+    "sentence-transformers/all-MiniLM-L6-v2"
+)
+VECTOR_INDEX_NAME = get_config_value(
+    "VECTOR_INDEX_NAME",
+    "vector_index"
+)
+
 
 if not GROQ_API_KEY:
     raise RuntimeError("GROQ_API_KEY is missing")
+
 if not MONGODB_URI:
     raise RuntimeError("MONGODB_URI is missing")
+
 if not DB_NAME:
     raise RuntimeError("DB_NAME is missing")
+
 if not COLLECTION_NAME:
     raise RuntimeError("COLLECTION_NAME is missing")
-if not GROQ_MODEL:
-    raise RuntimeError("GROQ_MODEL is missing")
-if not EMBEDDING_MODEL:
-    raise RuntimeError("EMBEDDING_MODEL is missing")
+
 
 os.environ["GROQ_API_KEY"] = GROQ_API_KEY
+
 client = MongoClient(MONGODB_URI)
 collection = client[DB_NAME][COLLECTION_NAME]
 
-embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-vector_store = MongoDBAtlasVectorSearch(collection=collection,embedding=embeddings,index_name="vector_index")
-model = ChatGroq(model=GROQ_MODEL,temperature=0)
+embeddings = HuggingFaceEmbeddings(
+    model_name=EMBEDDING_MODEL
+)
+
+vector_store = MongoDBAtlasVectorSearch(
+    collection=collection,
+    embedding=embeddings,
+    index_name=VECTOR_INDEX_NAME
+)
+
+model = ChatGroq(
+    model=GROQ_MODEL,
+    temperature=0
+)
 
 def create_vector_index():
     vector_store.create_vector_search_index(
@@ -45,7 +75,7 @@ def create_vector_index():
     )
     return {
         "message": "Vector index created successfully",
-        "index_name": "vector_index",
+        "index_name": VECTOR_INDEX_NAME,
         "dimensions": 384
     }
 def load_excel_to_database(file_path: str):
